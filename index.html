@@ -141,6 +141,14 @@ footer{margin:80px 0 0;padding:24px 0 40px;border-top:1px solid var(--line);colo
       </div>
       <ul class="posts">
         <li class="post">
+          <a href="posts/field-weighting.html">
+            <time datetime="2026-11">Nov 2026</time>
+            <span class="post-title">Should product fields get different BM25 weights?</span>
+            <p class="post-take"><b>Takeaway:</b> weighting the fields is what pays, not splitting them or indexing more text. Letting the name dominate added 3.4 nDCG points with no new model; equal weights gained nothing, and gluing all five fields into one document made search worse.</p>
+          </a>
+          <p class="post-links"><a href="https://github.com/enisteper1/e2e-search-lab/blob/main/retrieval/field_weighting_wands.ipynb" rel="noopener">Notebook ↗</a></p>
+        </li>
+        <li class="post">
           <a href="posts/tokenization.html">
             <time datetime="2026-11">Nov 2026</time>
             <span class="post-title">Which tokenizer should BM25 use? 17 options on three datasets</span>
