@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Basic BM25, optimized BM25 and vector search — Enis Teper</title>
+<meta name="description" content="GTE-small against field-weighted, parameter-tuned BM25: a large lead on Quora, a much smaller gap on HotpotQA, and a qualified reversal on WANDS.">
+<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="sepia"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Schibsted+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#F2F4F3; --surface:#FFFFFF; --ink:#16202A; --muted:#56616D; --line:#D9DEE2; --accent:#1F3FC4;
+  --serif:"Newsreader","Iowan Old Style",Georgia,serif;
+  --sans:"Schibsted Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme]){
+    --ground:#0F151B; --surface:#161E26; --ink:#E4E8EC; --muted:#9AA5B1; --line:#2A3540; --accent:#9DB0FF;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0F151B; --surface:#161E26; --ink:#E4E8EC; --muted:#9AA5B1; --line:#2A3540; --accent:#9DB0FF;
+}
+/* Reading theme: warm, paper-like tones that are easier on the eyes */
+:root[data-theme="sepia"]{
+  --ground:#F4ECD8; --surface:#FBF6E9; --ink:#3B2F22; --muted:#6B5C48; --line:#E2D5B9; --accent:#8A4B12;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6}
+a{color:var(--accent);text-underline-offset:3px}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+.wrap{max-width:720px;margin:0 auto;padding:0 24px}
+/* Header with home link and theme button */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0}
+.home{font-family:var(--serif);font-weight:500;font-size:21px;color:var(--ink);text-decoration:none;padding:6px 0}
+.home:hover{color:var(--accent)}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;min-width:40px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:inherit;font-size:14px;font-weight:500;cursor:pointer}
+.icon-btn:hover{border-color:var(--accent);color:var(--accent)}
+.icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.icon-btn svg{width:18px;height:18px;flex:none;display:none}
+.icon-btn[data-mode="light"] .i-light,.icon-btn[data-mode="sepia"] .i-sepia,.icon-btn[data-mode="dark"] .i-dark{display:block}
+.progress{position:fixed;top:0;left:0;height:3px;width:100%;background:var(--accent);transform-origin:0 50%;transform:scaleX(0);z-index:10}
+
+h1{font-family:var(--serif);font-weight:500;font-size:clamp(30px,5vw,42px);line-height:1.15;letter-spacing:-.015em;margin:28px 0 10px}
+.byline{margin:0 0 24px;font-size:14px;color:var(--muted)}
+p{margin:0 0 14px}
+.lead{font-size:19px}
+h2{font-family:var(--serif);font-weight:500;font-size:26px;line-height:1.2;margin:36px 0 10px}
+code{font-size:.92em;background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.tablewrap{overflow-x:auto;margin:20px 0 4px;-webkit-overflow-scrolling:touch}
+.res{border-collapse:collapse;width:100%;min-width:460px;font-size:15px;font-variant-numeric:tabular-nums}
+.res caption{text-align:left;color:var(--muted);font-size:14px;padding-bottom:8px}
+.res th,.res td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line)}
+.res th:first-child,.res td:first-child{text-align:left}
+.res thead th{font-weight:600;border-bottom:2px solid var(--ink)}
+.res tr.best td{font-weight:600;background:var(--surface)}
+.res td .d{display:block;font-size:12.5px;color:var(--muted);font-weight:400}
+.res.ex{min-width:780px}.res.ex td{min-width:165px}.res.ex td:first-child{min-width:130px;white-space:normal}.res.ex .d{display:block;margin-top:8px;color:var(--muted);font-size:13px}
+.res.ex th,.res.ex td{text-align:left;vertical-align:top}
+.res.ex td:first-child{white-space:nowrap;font-weight:500}
+.res.ex ol{margin:0;padding-left:18px}
+.res.ex li{margin:0 0 2px}
+.lb{display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;border-radius:4px;font-size:12px;font-weight:600;text-align:center;border:1px solid var(--line)}
+.lb.l2{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.lb.l1{border-color:var(--accent);color:var(--accent)}
+.lb.l0{color:var(--muted)}
+.t{display:inline-block;margin:2px 4px 2px 0;padding:0 7px;border:1px solid var(--line);border-radius:4px;background:var(--surface);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;line-height:1.6}
+.q{font-family:var(--serif);font-weight:500;font-size:21px;margin:22px 0 6px}
+.q+p{margin-bottom:10px}
+.formula{margin:16px 0;padding:12px 16px;background:var(--surface);border:1px solid var(--line);border-radius:8px;font-family:var(--serif);font-size:18px;overflow-x:auto;white-space:nowrap}
+.chart{margin:24px 0 8px}
+.chartwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.chart svg{display:block;width:100%;min-width:520px;height:auto}
+.chart text{fill:var(--muted);font-size:12px;font-family:inherit}
+.chart .gl{stroke:var(--line);stroke-width:1}
+.chart circle{stroke:var(--surface);stroke-width:1.5}
+.chart figcaption{margin-top:6px;font-size:14px;color:var(--muted);max-width:64ch}
+.chart .stem{stroke-width:2}
+.chart .pos{fill:var(--accent);stroke:var(--accent)}
+.chart .neg{fill:var(--muted);stroke:var(--muted)}
+.chart .zero{stroke:var(--ink);stroke-width:1}
+.chart .name{fill:var(--ink);font-size:12.5px}
+.chart .val{font-size:12px}
+/* Heatmap: cell shade = score, outline = beats concatenated text */
+.chart.heat svg{min-width:420px;max-width:560px}
+.chart .cell{fill:var(--accent);stroke:none}
+.chart .cellbg{fill:var(--surface);stroke:var(--line);stroke-width:1}
+.chart .win{fill:none;stroke:var(--ink);stroke-width:2}
+.chart .cv{fill:var(--ink);font-size:13px;font-weight:500}
+.chart .cv.on{fill:var(--surface)}
+.chart .axt{fill:var(--ink);font-size:13px;font-weight:500}
+.tags{list-style:none;margin:28px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px;font-size:14px}
+.tags li{padding:2px 10px;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);color:var(--muted);font-size:15px;display:flex;flex-wrap:wrap;gap:8px 24px;justify-content:space-between}
+
+.tablist{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto;-webkit-overflow-scrolling:touch;margin:20px 0 0}
+.tablist button{font:inherit;font-size:15px;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:10px 14px;cursor:pointer;white-space:nowrap}
+.tablist button:hover{color:var(--ink)}
+.tablist button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tablist button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
+.panel[hidden]{display:none}
+@media (max-width:560px){ body{font-size:16px} }
+.res.ex td:first-child{white-space:normal}
+.res .dataset{vertical-align:top;font-weight:500}.res .dataset .d{font-weight:400}
+.res.ex{min-width:620px}.res.ex td{min-width:180px}.res.ex td:first-child{min-width:175px;white-space:normal}.res.ex .d{display:block;margin-top:6px;font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="top">
+    <a class="home" href="../index.html#writing">Enis Teper</a>
+    <button type="button" class="icon-btn" id="theme" title="Change theme: Light, Reading, Dark">
+      <svg class="i-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="i-sepia" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2zM22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z"/></svg>
+      <svg class="i-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <span class="lbl">Theme</span>
+    </button>
+  </header>
+  <article>
+<h1>Basic BM25, optimized BM25 and vector search</h1>
+<p class="byline">November 2026 · <span id="rt">5 min read</span></p>
+
+<p class="lead">How much does retrieval improve when we tune BM25, and how does it compare with vector search? This experiment compares three configurations on Quora, WANDS and HotpotQA: basic BM25, BM25 with optimized field weights and parameters, and pretrained GTE-small.</p>
+<p>There is no single winner across datasets and metrics. GTE-small has a large lead on Quora. Optimized BM25 is close on HotpotQA and slightly ahead on MRR and recall. On WANDS, optimized BM25 has higher nDCG and recall, although differences in field inputs and evaluation qualify that result.</p>
+
+<h2>What are we comparing?</h2>
+<p>BM25 scores matching words; field weights decide which parts of a document count more, while <code>k1</code> and <code>b</code> control repetition and length normalization. GTE-small encodes a query and document into vectors and ranks by cosine similarity. That gives it a way to match related wording beyond the lexical matches BM25 relies on.</p>
+<p>The vector run uses pretrained GTE-small, one normalized 384-dimensional vector per document, and exact search over the full corpus. It is not fine-tuned for these datasets. Both BM25 configurations use regex plus Porter stemming. Basic BM25 concatenates its input fields and uses <code>k1=1.2, b=0.75</code>. Optimized BM25 uses separate weighted fields where available, then tunes <code>k1</code> and <code>b</code>. The <a href="field-weighting.html">field-weighting</a> and <a href="bm25-parameter-tuning.html">parameter-tuning</a> articles explain those choices:</p>
+<div class="tablewrap"><table class="res ex">
+<caption>The stronger BM25 systems used below.</caption>
+<thead><tr><th>Dataset</th><th>Field weights</th><th>Parameter selection</th></tr></thead>
+<tbody>
+<tr><td>Quora</td><td>Text only</td><td>k1=0.6, b=1; selected on dev</td></tr>
+<tr><td>WANDS</td><td>Name 1; category 0.5; description, class and features 0.25 each</td><td>k1 and b selected within each query fold</td></tr>
+<tr><td>HotpotQA</td><td>Title 0.5; text 1</td><td>k1=0.6, b=0.75; selected on dev</td></tr>
+</tbody></table></div>
+<p>Quora and HotpotQA use their full test sets: 10,000 and 7,405 queries. WANDS uses 479 judged queries. The corpus sizes are 522,931 questions, 5,233,329 passages and 42,994 products, respectively. Metrics are consistent within each dataset; their different relevance definitions make absolute scores across datasets less useful.</p>
+
+<h2>Three configurations, three different outcomes</h2>
+<figure class="chart"><div class="chartwrap"><svg role="img" aria-labelledby="retrieval-chart-title retrieval-chart-desc" xmlns:xlink="http://www.w3.org/1999/xlink" width="576pt" height="345.6pt" viewBox="0 0 576 345.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<title id="retrieval-chart-title">Basic BM25, optimized BM25 and GTE-small: nDCG at 10</title>
+<desc id="retrieval-chart-desc">Quora: 0.7998, 0.8011, 0.8802. WANDS: 0.6852, 0.7269, 0.7174. HotpotQA: 0.5950, 0.6323, 0.6378. WANDS has different field inputs and a conditional evaluation.</desc>
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-27T14:47:17.303696</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.0, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 345.6 
+L 576 345.6 
+L 576 0 
+L 0 0 
+L 0 345.6 
+z
+" style="fill: none"/>
+  </g>
+  <g id="axes_1">
+   <g id="patch_2">
+    <path d="M 108.972 306.977656 
+L 557.28 306.977656 
+L 557.28 37.904349 
+L 108.972 37.904349 
+L 108.972 306.977656 
+z
+" style="fill: none"/>
+   </g>
+   <g id="matplotlib.axis_1">
+    <g id="xtick_1">
+     <g id="line2d_1">
+      <path d="M 108.972 306.977656 
+L 108.972 37.904349 
+" clip-path="url(#pf6f205d41b)" style="fill: none; stroke: var(--line); stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_2"/>
+     <g id="text_1">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="108.972" y="318.075312" transform="rotate(-0 108.972 318.075312)">0.0</text>
+     </g>
+    </g>
+    <g id="xtick_2">
+     <g id="line2d_3">
+      <path d="M 198.6336 306.977656 
+L 198.6336 37.904349 
+" clip-path="url(#pf6f205d41b)" style="fill: none; stroke: var(--line); stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_4"/>
+     <g id="text_2">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="198.6336" y="318.075312" transform="rotate(-0 198.6336 318.075312)">0.2</text>
+     </g>
+    </g>
+    <g id="xtick_3">
+     <g id="line2d_5">
+      <path d="M 288.2952 306.977656 
+L 288.2952 37.904349 
+" clip-path="url(#pf6f205d41b)" style="fill: none; stroke: var(--line); stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_6"/>
+     <g id="text_3">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="288.2952" y="318.075312" transform="rotate(-0 288.2952 318.075312)">0.4</text>
+     </g>
+    </g>
+    <g id="xtick_4">
+     <g id="line2d_7">
+      <path d="M 377.9568 306.977656 
+L 377.9568 37.904349 
+" clip-path="url(#pf6f205d41b)" style="fill: none; stroke: var(--line); stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_8"/>
+     <g id="text_4">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="377.9568" y="318.075312" transform="rotate(-0 377.9568 318.075312)">0.6</text>
+     </g>
+    </g>
+    <g id="xtick_5">
+     <g id="line2d_9">
+      <path d="M 467.6184 306.977656 
+L 467.6184 37.904349 
+" clip-path="url(#pf6f205d41b)" style="fill: none; stroke: var(--line); stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_10"/>
+     <g id="text_5">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="467.6184" y="318.075312" transform="rotate(-0 467.6184 318.075312)">0.8</text>
+     </g>
+    </g>
+    <g id="xtick_6">
+     <g id="line2d_11">
+      <path d="M 557.28 306.977656 
+L 557.28 37.904349 
+" clip-path="url(#pf6f205d41b)" style="fill: none; stroke: var(--line); stroke-width: 0.7; stroke-linecap: square"/>
+     </g>
+     <g id="line2d_12"/>
+     <g id="text_6">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="557.28" y="318.075312" transform="rotate(-0 557.28 318.075312)">1.0</text>
+     </g>
+    </g>
+    <g id="text_7">
+     <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle; fill: var(--muted)" x="333.126" y="332.076094" transform="rotate(-0 333.126 332.076094)">nDCG@10 · higher is better</text>
+    </g>
+   </g>
+   <g id="matplotlib.axis_2">
+    <g id="ytick_1">
+     <g id="line2d_13"/>
+     <g id="text_8">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: end; fill: var(--muted)" x="105.472" y="81.86788" transform="rotate(-0 105.472 81.86788)">Quora · test</text>
+     </g>
+    </g>
+    <g id="ytick_2">
+     <g id="line2d_14"/>
+     <g id="text_9">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: end; fill: var(--muted)" x="105.472" y="176.239831" transform="rotate(-0 105.472 176.239831)">WANDS*</text>
+     </g>
+    </g>
+    <g id="ytick_3">
+     <g id="line2d_15"/>
+     <g id="text_10">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: end; fill: var(--muted)" x="105.472" y="270.611782" transform="rotate(-0 105.472 270.611782)">HotpotQA · test</text>
+     </g>
+    </g>
+   </g>
+   <g id="patch_3">
+    <path d="M 108.972 50.134954 
+L 467.528738 50.134954 
+L 467.528738 66.744418 
+L 108.972 66.744418 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: #64748b"/>
+   </g>
+   <g id="patch_4">
+    <path d="M 108.972 144.506905 
+L 416.152642 144.506905 
+L 416.152642 161.116369 
+L 108.972 161.116369 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: #64748b"/>
+   </g>
+   <g id="patch_5">
+    <path d="M 108.972 238.878856 
+L 375.71526 238.878856 
+L 375.71526 255.48832 
+L 108.972 255.48832 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: #64748b"/>
+   </g>
+   <g id="text_11">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="472.528738" y="61.037342" transform="rotate(-0 472.528738 61.037342)">0.7998</text>
+   </g>
+   <g id="text_12">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="421.152642" y="155.409293" transform="rotate(-0 421.152642 155.409293)">0.6852</text>
+   </g>
+   <g id="text_13">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="380.71526" y="249.781244" transform="rotate(-0 380.71526 249.781244)">0.5950</text>
+   </g>
+   <g id="patch_6">
+    <path d="M 108.972 69.76432 
+L 468.111539 69.76432 
+L 468.111539 86.373783 
+L 108.972 86.373783 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: #16856b"/>
+   </g>
+   <g id="patch_7">
+    <path d="M 108.972 164.136271 
+L 434.847085 164.136271 
+L 434.847085 180.745735 
+L 108.972 180.745735 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: #16856b"/>
+   </g>
+   <g id="patch_8">
+    <path d="M 108.972 258.508222 
+L 392.437148 258.508222 
+L 392.437148 275.117686 
+L 108.972 275.117686 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: #16856b"/>
+   </g>
+   <g id="text_14">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="473.111539" y="80.666708" transform="rotate(-0 473.111539 80.666708)">0.8011</text>
+   </g>
+   <g id="text_15">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="439.847085" y="175.038659" transform="rotate(-0 439.847085 175.038659)">0.7269</text>
+   </g>
+   <g id="text_16">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="397.437148" y="269.41061" transform="rotate(-0 397.437148 269.41061)">0.6323</text>
+   </g>
+   <g id="patch_9">
+    <path d="M 108.972 89.393686 
+L 503.572702 89.393686 
+L 503.572702 106.003149 
+L 108.972 106.003149 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: var(--accent)"/>
+   </g>
+   <g id="patch_10">
+    <path d="M 108.972 183.765637 
+L 430.588159 183.765637 
+L 430.588159 200.3751 
+L 108.972 200.3751 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: var(--accent)"/>
+   </g>
+   <g id="patch_11">
+    <path d="M 108.972 278.137588 
+L 394.902842 278.137588 
+L 394.902842 294.747051 
+L 108.972 294.747051 
+z
+" clip-path="url(#pf6f205d41b)" style="fill: var(--accent)"/>
+   </g>
+   <g id="text_17">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="508.572702" y="100.296074" transform="rotate(-0 508.572702 100.296074)">0.8802</text>
+   </g>
+   <g id="text_18">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="435.588159" y="194.668025" transform="rotate(-0 435.588159 194.668025)">0.7174</text>
+   </g>
+   <g id="text_19">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: start; fill: var(--ink)" x="399.902842" y="289.039976" transform="rotate(-0 399.902842 289.039976)">0.6378</text>
+   </g>
+   <g id="legend_1">
+    <g id="patch_12">
+     <path d="M 13.96116 22.260774 
+L 31.96116 22.260774 
+L 31.96116 15.960774 
+L 13.96116 15.960774 
+z
+" style="fill: #64748b"/>
+    </g>
+    <g id="text_20">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start" x="39.16116" y="22.260774" transform="rotate(-0 39.16116 22.260774)">Basic BM25</text>
+    </g>
+    <g id="patch_13">
+     <path d="M 109.241629 22.260774 
+L 127.241629 22.260774 
+L 127.241629 15.960774 
+L 109.241629 15.960774 
+z
+" style="fill: #16856b"/>
+    </g>
+    <g id="text_21">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start" x="134.441629" y="22.260774" transform="rotate(-0 134.441629 22.260774)">Optimized BM25</text>
+    </g>
+    <g id="patch_14">
+     <path d="M 226.763348 22.260774 
+L 244.763348 22.260774 
+L 244.763348 15.960774 
+L 226.763348 15.960774 
+z
+" style="fill: var(--accent)"/>
+    </g>
+    <g id="text_22">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start" x="251.963347" y="22.260774" transform="rotate(-0 251.963347 22.260774)">Vector search · GTE-small</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="pf6f205d41b">
+   <rect x="108.972" y="37.904349" width="448.308" height="269.073307"/>
+  </clipPath>
+ </defs>
+</svg>
+</div><figcaption>Three retrieval configurations on the same zero-to-one scale. Compare methods within each dataset. *WANDS: optimized BM25 uses five fields and conditional OOF evaluation; basic BM25 and GTE use three fields. No uncertainty intervals are shown.</figcaption></figure>
+<div class="tablewrap"><table class="res">
+<caption>nDCG@10 from the saved runs. “Basic BM25” concatenates fields with k1=1.2, b=0.75. The final column is GTE minus tuned BM25, in percentage points; differences use the displayed tuned scores.</caption>
+<thead><tr><th>Dataset</th><th>Basic BM25</th><th>Tuned BM25</th><th>GTE-small</th><th>GTE − tuned</th></tr></thead>
+<tbody><tr><td>Quora <span class="d">test</span></td><td>0.7998</td><td>0.8011</td><td>0.8802</td><td>+7.91</td></tr>
+<tr><td>WANDS <span class="d">conditional comparison</span></td><td>0.6852</td><td>0.7269</td><td>0.7174</td><td>-0.95</td></tr>
+<tr><td>HotpotQA <span class="d">test</span></td><td>0.5950</td><td>0.6323</td><td>0.6378</td><td>+0.55</td></tr>
+</tbody></table></div>
+<p>These are comparisons of existing runs, not a new joint experiment. For Quora and HotpotQA, both pipelines use the full BEIR test splits and exclude query/document self-matches. Their package versions differ. No paired confidence intervals are reported for GTE versus optimized BM25, so small differences should not be treated as established improvements.</p>
+
+<h2>Quora: tuning does not close the gap</h2>
+<p>GTE-small reaches 0.8802 nDCG, versus 0.8011 for tuned BM25: a lead of about <strong>7.91 points</strong>. Parameter tuning barely moves the lexical baseline. GTE also leads on MRR and Recall@100.</p>
+<p>A plausible reason is the task itself: two questions can ask the same thing using different words. Field weights cannot help a single-field corpus, and changing saturation or length penalties cannot create missing lexical matches. An embedding model can represent similarities that survive a change in wording. The size of the gap is consistent with that explanation, though the aggregate results do not prove which query types account for it.</p>
+
+<h2>HotpotQA: optimized BM25 is close</h2>
+<p>GTE’s nDCG lead over basic BM25 is 4.28 points. Against weighted, parameter-tuned BM25, it is only <strong>0.55 points</strong>: 0.6378 versus 0.6323. Optimizing the lexical system closes roughly 87% of the original gap.</p>
+<p>The remaining difference also depends on the metric. Tuned BM25 reaches 0.8049 MRR, slightly above GTE’s 0.8008. Recall@100 is 0.7772 versus 0.7758. GTE has higher nDCG and Recall@10 (0.6580 versus 0.6521), so neither method leads everywhere.</p>
+<p>The parameter sweep shows that lowering <code>k1</code> mattered much more than field weighting alone. That suggests much of the original gap reflected how BM25 scored its matches, rather than a limitation that only embeddings could address. It does not establish that the methods retrieve the same passages, or that the small remaining differences are reliable.</p>
+
+<h2>WANDS: the numbers favor BM25, with a qualification</h2>
+<p>Tuned BM25 reaches 0.7269 nDCG against GTE’s 0.7174, about <strong>0.95 points higher</strong>. Its Recall@100 is also higher: 0.4172 versus 0.3801. GTE retains the higher MRR, 0.7147 versus 0.7033: it places the first Exact product earlier on average, while BM25 does better on the graded top-10 ranking and broader candidate coverage.</p>
+<p>There are two reasons not to call this a clean win for lexical retrieval. <strong>Tuned BM25 uses five product fields; GTE sees only name, category and description.</strong> Also, BM25’s fixed field weights were selected using these queries during field-weight selection. Its cross-validation holds out queries for parameter selection only, so the result is conditional on that earlier choice.</p>
+<p>Beating unweighted concatenation does not establish that vector search outperforms a carefully configured product-search system. Giving GTE the same five fields and comparing both systems on untouched queries would make the next comparison more decisive.</p>
+
+<h2>Better ranking, or more relevant candidates?</h2>
+<div class="tablewrap"><table class="res">
+<caption>Each cell shows tuned BM25 / GTE-small. MRR measures the first relevant result (Exact only for WANDS); Recall@100 measures candidate coverage.</caption>
+<thead><tr><th>Dataset</th><th>MRR@10</th><th>Recall@100</th></tr></thead>
+<tbody><tr><td>Quora</td><td>0.7955 / 0.8725</td><td>0.9744 / 0.9955</td></tr>
+<tr><td>WANDS</td><td>0.7033 / 0.7147</td><td>0.4172 / 0.3801</td></tr>
+<tr><td>HotpotQA</td><td>0.8049 / 0.8008</td><td>0.7772 / 0.7758</td></tr>
+</tbody></table></div>
+<p>If the next stage reranks 100 candidates, coverage matters: a reranker cannot recover a relevant document that never arrived. If the first result matters most, MRR may tell a different story. That is why “does vector search win?” needs a metric as well as a dataset.</p>
+<p>There is also an operational difference: dense retrieval needs document encoding, vector storage and query inference. These saved runs are not a controlled latency benchmark, so their timings do not establish a production speed advantage. Query-level outcomes help assess whether combining the methods is worth testing; no hybrid result is measured here.</p>
+
+<h2>Do they win on the same queries?</h2>
+<p>The advantage changes sides on all three datasets. Matching queries by ID, GTE-small has higher nDCG@10 on 2,840 Quora queries, but optimized BM25 wins on 987. On WANDS, BM25 wins more often, yet GTE is better on 155 of the 479 queries. Neither method dominates query by query.</p>
+<figure class="chart"><div class="chartwrap"><svg role="img" aria-label="Query-level nDCG comparison. Quora: BM25 wins 987, tied 6173, GTE wins 2840. WANDS: BM25 wins 203, tied 121, GTE wins 155. HotpotQA: BM25 wins 2008, tied 3152, GTE wins 2245." xmlns:xlink="http://www.w3.org/1999/xlink" width="576pt" height="273.6pt" viewBox="0 0 576 273.6" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-11-27T14:55:21.535752</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.11.0, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="complementarity-figure_1">
+  <g id="complementarity-patch_1">
+   <path d="M 0 273.6 
+L 576 273.6 
+L 576 0 
+L 0 0 
+L 0 273.6 
+z
+" style="fill: none"/>
+  </g>
+  <g id="complementarity-axes_1">
+   <g id="complementarity-patch_2">
+    <path d="M 108.972 234.977656 
+L 550.8 234.977656 
+L 550.8 36.795549 
+L 108.972 36.795549 
+L 108.972 234.977656 
+z
+" style="fill: none"/>
+   </g>
+   <g id="complementarity-patch_3">
+    <path d="M 108.972 45.803827 
+L 152.580424 45.803827 
+L 152.580424 84.663064 
+L 108.972 84.663064 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #16856b"/>
+   </g>
+   <g id="complementarity-patch_4">
+    <path d="M 108.972 116.456984 
+L 296.218522 116.456984 
+L 296.218522 155.316221 
+L 108.972 155.316221 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #16856b"/>
+   </g>
+   <g id="complementarity-patch_5">
+    <path d="M 108.972 187.110142 
+L 228.781672 187.110142 
+L 228.781672 225.969379 
+L 108.972 225.969379 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #16856b"/>
+   </g>
+   <g id="complementarity-patch_6">
+    <path d="M 152.580424 45.803827 
+L 425.320848 45.803827 
+L 425.320848 84.663064 
+L 152.580424 84.663064 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #d9dee2"/>
+   </g>
+   <g id="complementarity-patch_7">
+    <path d="M 296.218522 116.456984 
+L 407.828518 116.456984 
+L 407.828518 155.316221 
+L 296.218522 155.316221 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #d9dee2"/>
+   </g>
+   <g id="complementarity-patch_8">
+    <path d="M 228.781672 187.110142 
+L 416.849445 187.110142 
+L 416.849445 225.969379 
+L 228.781672 225.969379 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #d9dee2"/>
+   </g>
+   <g id="complementarity-patch_9">
+    <path d="M 425.320848 45.803827 
+L 550.8 45.803827 
+L 550.8 84.663064 
+L 425.320848 84.663064 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #1f3fc4"/>
+   </g>
+   <g id="complementarity-patch_10">
+    <path d="M 407.828518 116.456984 
+L 550.8 116.456984 
+L 550.8 155.316221 
+L 407.828518 155.316221 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #1f3fc4"/>
+   </g>
+   <g id="complementarity-patch_11">
+    <path d="M 416.849445 187.110142 
+L 550.8 187.110142 
+L 550.8 225.969379 
+L 416.849445 225.969379 
+z
+" clip-path="url(#complementarity-p011f76af61)" style="fill: #1f3fc4"/>
+   </g>
+   <g id="complementarity-matplotlib.axis_1">
+    <g id="complementarity-xtick_1">
+     <g id="complementarity-line2d_1"/>
+     <g id="complementarity-text_1">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle" x="108.972" y="246.075312" transform="rotate(-0 108.972 246.075312)">0%</text>
+     </g>
+    </g>
+    <g id="complementarity-xtick_2">
+     <g id="complementarity-line2d_2"/>
+     <g id="complementarity-text_2">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle" x="219.429" y="246.075312" transform="rotate(-0 219.429 246.075312)">25%</text>
+     </g>
+    </g>
+    <g id="complementarity-xtick_3">
+     <g id="complementarity-line2d_3"/>
+     <g id="complementarity-text_3">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle" x="329.886" y="246.075312" transform="rotate(-0 329.886 246.075312)">50%</text>
+     </g>
+    </g>
+    <g id="complementarity-xtick_4">
+     <g id="complementarity-line2d_4"/>
+     <g id="complementarity-text_4">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle" x="440.343" y="246.075312" transform="rotate(-0 440.343 246.075312)">75%</text>
+     </g>
+    </g>
+    <g id="complementarity-xtick_5">
+     <g id="complementarity-line2d_5"/>
+     <g id="complementarity-text_5">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle" x="550.8" y="246.075312" transform="rotate(-0 550.8 246.075312)">100%</text>
+     </g>
+    </g>
+    <g id="complementarity-text_6">
+     <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: middle" x="329.886" y="260.076094" transform="rotate(-0 329.886 260.076094)">Share of queries · per-query nDCG@10</text>
+    </g>
+   </g>
+   <g id="complementarity-matplotlib.axis_2">
+    <g id="complementarity-ytick_1">
+     <g id="complementarity-line2d_6"/>
+     <g id="complementarity-text_7">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: end" x="105.472" y="69.032273" transform="rotate(-0 105.472 69.032273)">Quora · test</text>
+     </g>
+    </g>
+    <g id="complementarity-ytick_2">
+     <g id="complementarity-line2d_7"/>
+     <g id="complementarity-text_8">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: end" x="105.472" y="139.685431" transform="rotate(-0 105.472 139.685431)">WANDS*</text>
+     </g>
+    </g>
+    <g id="complementarity-ytick_3">
+     <g id="complementarity-line2d_8"/>
+     <g id="complementarity-text_9">
+      <text style="font-size: 10px; font-family: 'DejaVu Sans'; text-anchor: end" x="105.472" y="210.338588" transform="rotate(-0 105.472 210.338588)">HotpotQA · test</text>
+     </g>
+    </g>
+   </g>
+   <g id="complementarity-text_10">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(118.073868 61.830125)">9.9%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(121.232462 73.832078)">987</text>
+   </g>
+   <g id="complementarity-text_11">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(186.711667 132.483282)">42.4%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(193.051511 144.485236)">203</text>
+   </g>
+   <g id="complementarity-text_12">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(152.993242 203.13644)">27.1%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(154.562774 215.138393)">2,008</text>
+   </g>
+   <g id="complementarity-text_13">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #16202a" transform="translate(273.067042 61.830125)">61.7%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #16202a" transform="translate(274.636573 73.832078)">6,173</text>
+   </g>
+   <g id="complementarity-text_14">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #16202a" transform="translate(336.139926 132.483282)">25.3%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #16202a" transform="translate(342.47977 144.485236)">121</text>
+   </g>
+   <g id="complementarity-text_15">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #16202a" transform="translate(306.931965 203.13644)">42.6%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #16202a" transform="translate(308.501496 215.138393)">3,152</text>
+   </g>
+   <g id="complementarity-text_16">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(472.17683 61.830125)">28.4%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(473.746362 73.832078)">2,840</text>
+   </g>
+   <g id="complementarity-text_17">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(463.430665 132.483282)">32.4%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(469.770509 144.485236)">155</text>
+   </g>
+   <g id="complementarity-text_18">
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(467.941129 203.13644)">30.3%</text>
+    <text style="font-size: 10px; font-family: 'DejaVu Sans'; fill: #ffffff" transform="translate(469.51066 215.138393)">2,245</text>
+   </g>
+   <g id="complementarity-legend_1">
+    <g id="complementarity-patch_12">
+     <path d="M 15.45156 22.569798 
+L 33.45156 22.569798 
+L 33.45156 16.269798 
+L 15.45156 16.269798 
+z
+" style="fill: #16856b"/>
+    </g>
+    <g id="complementarity-text_19">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start" x="40.65156" y="22.569798" transform="rotate(-0 40.65156 22.569798)">Optimized BM25 higher</text>
+    </g>
+    <g id="complementarity-patch_13">
+     <path d="M 164.692654 22.569798 
+L 182.692654 22.569798 
+L 182.692654 16.269798 
+L 164.692654 16.269798 
+z
+" style="fill: #d9dee2"/>
+    </g>
+    <g id="complementarity-text_20">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start" x="189.892654" y="22.569798" transform="rotate(-0 189.892654 22.569798)">Equal nDCG</text>
+    </g>
+    <g id="complementarity-patch_14">
+     <path d="M 261.764685 22.569798 
+L 279.764685 22.569798 
+L 279.764685 16.269798 
+L 261.764685 16.269798 
+z
+" style="fill: #1f3fc4"/>
+    </g>
+    <g id="complementarity-text_21">
+     <text style="font-size: 9px; font-family: 'DejaVu Sans'; text-anchor: start" x="286.964685" y="22.569798" transform="rotate(-0 286.964685 22.569798)">GTE-small higher</text>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <clipPath id="complementarity-p011f76af61">
+   <rect x="108.972" y="36.795549" width="441.828" height="198.182107"/>
+  </clipPath>
+ </defs>
+</svg>
+</div><figcaption>Per-query nDCG@10: optimized BM25 higher, equal, or GTE-small higher. Labels show shares and query counts; ties use |Δ| ≤ 10<sup>−10</sup>. Equal scores do not imply identical rankings. *WANDS uses BM25 scores averaged over five conditional OOF runs; its field-input and evaluation differences still apply.</figcaption></figure>
+<p><strong>HotpotQA makes the complementarity clearest.</strong> The average nDCG scores are close, but BM25 is better on 2,008 queries and GTE on 2,245. Together, those are 57.4% of the test queries where one method scores higher than the other. Similar averages hide substantial differences in which queries each system handles well.</p>
+<p>To measure the room for query-level selection, imagine an oracle that knows the relevance labels and always picks the better of the two complete rankings. Its mean nDCG would be:</p>
+<div class="tablewrap"><table class="res">
+<caption>A hindsight selector, not a measured hybrid system. Gain is against the higher of the two standalone mean scores.</caption>
+<thead><tr><th>Dataset</th><th>Best standalone</th><th>Oracle selector</th><th>Potential gain (pp)</th></tr></thead>
+<tbody>
+<tr><td>Quora</td><td>0.8802</td><td>0.9102</td><td>+3.00</td></tr>
+<tr><td>WANDS*</td><td>0.7269</td><td>0.7889</td><td>+6.20</td></tr>
+<tr><td>HotpotQA</td><td>0.6378</td><td>0.7199</td><td>+8.21</td></tr>
+</tbody></table></div>
+<p>These numbers show complementary ranking strengths and give a reason to test query routing or hybrid retrieval. They are not gains a deployed system can claim: the oracle uses answers unavailable at search time, and it selects one whole ranking rather than merging results. Per-query scores also do not measure overlap between relevant documents; candidate complementarity requires a separate comparison of retrieved document IDs.</p>
+
+<h2>The takeaway</h2>
+<p>There is no single winner across datasets, metrics and queries. GTE-small leads clearly on Quora, while optimized BM25 is competitive on HotpotQA and offers stronger coverage on WANDS in this comparison. Better average ranking does not mean better results for every query.</p>
+<p>The two methods have complementary strengths: each handles queries the other handles less well. That makes combining them worth testing, rather than assuming one should replace the other. The right choice depends on the balance of ranking quality, candidate coverage and computational cost—and any hybrid gain still needs to be measured.</p>
+
+<ul class="tags" aria-label="Topics"><li>BM25</li><li>GTE-small</li><li>semantic search</li><li>field weighting</li><li>parameter tuning</li><li>evaluation</li></ul>
+  </article>
+
+  <footer>
+    <a href="https://github.com/enisteper1/e2e-search-lab/blob/main/retrieval/bm25_vs_gte_multidataset_results.ipynb" rel="noopener">Vector-search notebook</a>
+    <a href="https://github.com/enisteper1/e2e-search-lab/blob/main/retrieval/bm25_parameter_tuning.ipynb" rel="noopener">BM25 tuning notebook</a>
+    <a href="../index.html#writing">More writing</a>
+  </footer>
+</div>
+<script>
+(function(){
+  // One button cycles Light -> Reading (warm) -> Dark. The choice is shared with
+  // the homepage; until one is made, the page follows the system light/dark setting.
+  var root=document.documentElement, btn=document.getElementById("theme");
+  var MODES=["light","sepia","dark"], NAMES={light:"Light",sepia:"Reading",dark:"Dark"};
+  function cur(){ var t=root.getAttribute("data-theme"); return MODES.indexOf(t)>=0?t:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"); }
+  function sync(){ var m=cur(); btn.setAttribute("data-mode",m); btn.querySelector(".lbl").textContent=NAMES[m]; btn.setAttribute("aria-label","Theme: "+NAMES[m]+". Change theme"); }
+  btn.addEventListener("click",function(){
+    var next=MODES[(MODES.indexOf(cur())+1)%MODES.length];
+    root.setAttribute("data-theme",next);
+    try{localStorage.setItem("theme",next)}catch(e){}
+    sync();
+  });
+  sync();
+  // Reading time and progress bar
+  var art=document.querySelector("article");
+  var readable=art.cloneNode(true);
+  readable.querySelectorAll('svg').forEach(function(el){el.remove()});
+  var words=(readable.textContent||'').trim().split(/\s+/).length;
+  document.getElementById("rt").textContent=Math.max(1,Math.round(words/220))+" min read";
+  var bar=document.getElementById("progress");
+  function prog(){
+    var max=document.documentElement.scrollHeight-innerHeight;
+    bar.style.transform="scaleX("+(max>0?Math.min(1,scrollY/max):0)+")";
+  }
+  addEventListener("scroll",prog,{passive:true}); addEventListener("resize",prog); prog();
+})();
+</script>
+</body>
+</html>
