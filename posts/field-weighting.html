@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Should product fields get different BM25 weights? — Enis Teper</title>
-<meta name="description" content="All five WANDS text fields (name, category, description, class and features) indexed as separate BM25 fields: 781 weight settings, cross-validated against concatenated text.">
+<title>Should fields get different BM25 weights? — Enis Teper</title>
+<meta name="description" content="BM25 field weighting on WANDS and HotpotQA: a 3.36-point OOF nDCG gain for products, but only 0.30 points on HotpotQA test with lower recall.">
 <script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="sepia"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -121,10 +121,22 @@ footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);colo
     </button>
   </header>
   <article>
-    <h1>Should product fields get different BM25 weights?</h1>
-    <p class="byline">November 2026 · <span id="rt">9 min read</span></p>
+    <h1>Should fields get different BM25 weights?</h1>
+    <p class="byline">November 2026 · Updated November 27 · <span id="rt">9 min read</span></p>
 
-    <p class="lead">In the <a href="tokenization.html">tokenizer post</a> every WANDS product was one block of text. But WANDS describes each product with five text fields: a name, a category path, a description, a product class and a list of attributes. Here we keep the best tokenizer from that post (regex + Porter) and the same BM25 (k1 = 1.2, b = 0.75), give each of the five fields its own index and change only how much each field counts. The weights are chosen on one half of the queries and measured on the other, so the gains below are not tuned on the queries they are reported on.</p>
+    <p class="lead">Does a match in a short title deserve more weight than a match in a long description? I tested separate BM25 field indexes on WANDS product search and HotpotQA passage retrieval. Weighting helped WANDS by 3.36 nDCG@10 points over its three-field concatenated baseline. On HotpotQA, the test gain was only 0.30 points, and Recall@100 fell. The same scoring rule produces quite different trade-offs.</p>
+    <p>Both experiments keep the tokenizer and BM25 settings fixed. Each field gets its own index, and we change how much its score contributes to the final ranking.</p>
+    <div class="tablewrap">
+      <table class="res ex">
+        <caption>Two datasets, two evaluation protocols. Compare methods within each dataset.</caption>
+        <thead><tr><th>Dataset</th><th>Corpus and fields</th><th>Selection and evaluation</th></tr></thead>
+        <tbody>
+          <tr><td>WANDS</td><td>42,994 products; five text fields</td><td>479 queries; five seeds of two-way two-fold cross-validation, reported out of fold</td></tr>
+          <tr><td>HotpotQA (BEIR)</td><td>5,233,329 passages; title and text</td><td>Select on 5,447 dev queries; freeze weights and evaluate on 7,405 test queries</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>With only one nonempty field, as in Quora's text-only BEIR corpus, a positive weight cannot change the ranking. There is no relative field-weight optimization to perform.</p>
 
     <h2>The basics</h2>
 
@@ -143,7 +155,7 @@ footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);colo
         </tbody>
       </table>
     </div>
-    <p>The name says what the product is. The category is a small, repetitive vocabulary (1,117 distinct terms after stemming) that groups products together, and the class is a two-word product type. The description is ten times longer than the name and mixes the product type with style, material and marketing words. The features are the longest field: a list of <code>key : value</code> attributes such as color, material and style, indexed as they are. WANDS also has ratings and review counts, but those are numbers, not text, so BM25 cannot use them.</p>
+    <p>The name says what the product is. The category is a small, repetitive vocabulary (1,117 distinct terms after stemming) that groups products together, and the class is a two-word product type. The description is ten times longer than the name and mixes the product type with style, material and marketing words. The features are the longest field: a list of <code>key : value</code> attributes such as color, material and style, indexed as they are. WANDS also has ratings and review counts, but those are numbers, not text, so they are excluded from this text-field experiment.</p>
 
     <p class="q">What goes wrong when the fields are concatenated?</p>
     <p>BM25 then sees one long document. With all five fields that document is 233 tokens on average, and a query word in the six-word name counts the same as that word anywhere in the description or the attribute list. The document's total length decides the length normalization for every match. The term statistics are mixed too: a word that is rare in names but common in descriptions gets a single IDF. The tokenizer post concatenated only the name, category and description (80 tokens), which is the baseline we compare against below.</p>
@@ -155,9 +167,9 @@ footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);colo
 
     <p class="q">How were the weights chosen?</p>
     <p>Each weight took a value from {0, 1, 2, 4}. Settings that differ only by a common factor rank products the same way, so after removing those there are 781 distinct settings, including every single-field and leave-one-field-out case. We split the 479 queries in half, picked the setting with the best nDCG@10 on one half and scored it on the other, then swapped the halves. Repeating this over 5 random splits gives every query an out-of-fold (OOF) score. To see whether the class and the attributes earn their place, we also tuned on the same splits over the 37 settings that use only the name, category and description. Equal weights and the concatenated text have nothing to tune and are scored on all queries.</p>
-    <p>nDCG@10 uses graded labels (Exact = 2, Partial = 1), MRR@10 counts only Exact products, and Recall@100 counts both. Recall is low for every method because many queries have hundreds of relevant products.</p>
+    <p>nDCG@10 uses graded labels (Exact = 2, Partial = 1), MRR@10 counts only Exact products (queries without any Exact product are excluded from that average), and Recall@10 and Recall@100 count both. nDCG uses gain 2<sup>grade</sup> − 1; unlabeled products count as irrelevant. Recall is low for every method because many queries have hundreds of relevant products.</p>
 
-    <h2>The results</h2>
+    <h2>WANDS: the results</h2>
     <div class="tablewrap">
       <table class="res">
         <caption>Averages over 479 queries. Δ is the change in nDCG@10 in points against the three-field concatenated text, with a paired bootstrap 95% interval over queries below it.</caption>
@@ -171,13 +183,14 @@ footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);colo
         </tbody>
       </table>
     </div>
+    <p>The three-field concatenation is the predeclared reference, not a baseline selected after comparing results. The bootstrap intervals resample queries after averaging OOF scores over seeds. They hold the selected fold weights fixed and do not capture uncertainty from repeating weight selection. Variation across seeds measures split sensitivity, not a confidence interval.</p>
     <p>Tuned weights over all five fields added 3.4 nDCG points and 3.6 points of Recall@100 over the three-field concatenated text, and the interval stays well above zero. It is not a win for every query: 212 queries improved, 158 got worse and 109 did not change. The other rows explain where the gain comes from.</p>
 
     <h2>More text in one document hurts</h2>
-    <p>Gluing all five fields into one document scored 1.6 points <em>below</em> the three-field version, and that interval stays below zero too. The attribute list nearly triples the document (80 → 233 tokens), so length normalization dilutes the short name even further, and generic attribute words match many products. The same text that hurts inside one document is harmless, or slightly useful, once it has its own index and a low weight. This is the clearest case for separate fields.</p>
+    <p>Gluing all five fields into one document scored 1.6 points <em>below</em> the three-field version, and that interval stays below zero too. Adding class and features nearly triples the document (80 → 233 tokens). This changes length normalization and term statistics together; dilution of name matches is a plausible explanation, but this experiment does not isolate its contribution. The same text that hurts inside one document is harmless, or slightly useful, once it has its own index and a low weight. This is the clearest case for separate fields.</p>
 
     <h2>Splitting the fields alone is not enough</h2>
-    <p>Giving all five fields the same weight scored the same as the three-field concatenated text (+0.1, interval −1.7 to +1.9). With equal weights a match in the class, the category or the attributes adds as much as a match in the name, so their generic words still pull in the wrong products. At equal weight the class even hurts: removing it raises nDCG@10 from 0.686 to 0.691. The gain comes from the next step: counting those fields less.</p>
+    <p>Giving all five fields the same weight scored the same as the three-field concatenated text (+0.1, interval −1.7 to +1.9). Equal weights give each field score the same multiplier, but individual matches can still contribute different amounts because each index has its own IDF and length normalization. At equal weight the class even hurts: removing it raises nDCG@10 from 0.686 to 0.691. The gain comes from the next step: counting those fields less.</p>
 
     <h2>The weights that won</h2>
     <p>The most common choice, in 6 of 10 folds, was name 1, category 0.5, and a quarter each for description, class and features. In every fold the name had the highest weight and every other field got a quarter or half of it, except one fold that dropped the features completely. The map below holds the name at 1 and the class and features at 0.25, and shows every combination of category and description. Pick a metric to see how the picture changes.</p>
@@ -220,17 +233,35 @@ footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);colo
         </tbody>
       </table>
     </div>
-    <p>The wins come from long descriptions that the concatenated text could not ignore. Porter stems both <span class="t">olive</span> and <span class="t">oliver</span> to <span class="t">oliv</span>, so George Oliver TV stands, whose descriptions say “tv console”, matched the query on brand and description words. With the description at a quarter weight, products named “console table” move to the top. In <span class="t">outdoor sectional doning</span> (a typo for “dining”), the concatenated text even let an indoor/outdoor rug into the top 3, while the tuned weights kept outdoor sectionals there.</p>
+    <p>These examples suggest that reducing description influence can help, although they do not isolate a causal mechanism. Porter stems both <span class="t">olive</span> and <span class="t">oliver</span> to <span class="t">oliv</span>, so George Oliver TV stands, whose descriptions say “tv console”, matched the query on brand and description words. With the description at a quarter weight, products named “console table” move to the top. In <span class="t">outdoor sectional doning</span> (a typo for “dining”), the concatenated text even let an indoor/outdoor rug into the top 3, while the tuned weights kept outdoor sectionals there.</p>
     <p>The losses are the same mechanism in reverse. The knobs are named “mushroom knob” and “square knob”; only their descriptions mention bathroom vanities. The vanities have <span class="t">bathroom</span> and <span class="t">vanity</span> in their names, so a strong name match on two words beats a single match on the word that matters, <span class="t">knob</span>. The right answer is right there in the class field, <span class="t">Cabinet and Drawer Knobs</span> against <span class="t">Vanities</span>, and the same holds for <span class="t">Shower &amp; Tub Doors</span> against <span class="t">Interior Doors</span>. But as a low-weighted bag of words, the class cannot outweigh two matching words in the name. A sum of field scores cannot tell which query word is the product type and which is a modifier. Using the class well probably means predicting it from the query and filtering or boosting on it, which is a job for query understanding, not for field weights.</p>
 
-    <h2>The takeaway</h2>
-    <p>On WANDS, giving each product field its own BM25 index and weight was worth about 3 nDCG points with no new model and no new data: name at full weight, category at half, and description, class and features at a quarter. Two things did not work: splitting the fields without weighting them, and putting all the text into one document, which was worse than leaving the class and the attributes out. Most of the gain came from weighting the name, category and description; the class and attributes added half a point that we cannot tell apart from noise. Field weighting also cost some MRR@10, and its failures are queries where a modifier matches the name better than the product type does. Per-field <code>b</code>, true BM25F and using the product class as a query-side signal rather than as text are the next things to test.</p>
+    <h2>HotpotQA: the passage gets more weight</h2>
+    <p>HotpotQA pairs a short title with a longer passage: about 3 and 44 tokens on average. We keep all 5.23 million documents and compare seven relative weight settings against concatenating title and text.</p>
+    <p>Weights are chosen on dev queries and fixed before evaluating test queries. Every dev fold, as well as the full dev set, selected <strong>title 0.5, text 1</strong>. WANDS favored the product name; here passage text gets the larger multiplier.</p>
+    <div class="tablewrap">
+      <table class="res">
+        <caption>HotpotQA test: 7,405 queries, with weights selected only on dev. Δ is nDCG@10 percentage points against concatenation.</caption>
+        <thead><tr><th>Method</th><th>nDCG@10</th><th>MRR@10</th><th>Recall@10</th><th>Recall@100</th><th>Δ nDCG</th></tr></thead>
+        <tbody>
+          <tr><td>Concatenated title + text</td><td>0.5950</td><td>0.7625</td><td>0.6231</td><td>0.7739</td><td>baseline</td></tr>
+          <tr><td>Equal field weights</td><td>0.5882</td><td>0.7565</td><td>0.6059</td><td>0.7167</td><td>−0.68</td></tr>
+          <tr class="best"><td>Title 0.5, text 1</td><td>0.5980</td><td>0.7657</td><td>0.6220</td><td>0.7583</td><td>+0.30</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The test gain is small: nDCG@10 rises from 0.5950 to 0.5980 and MRR@10 from 0.7625 to 0.7657. Recall@10 slips from 0.6231 to 0.6220, and Recall@100 drops from 0.7739 to 0.7583, about 1.56 points. If these results feed a reranker, that loss of candidate coverage may matter more than the small top-rank gain. Equal field weights are worse than concatenation on all four metrics.</p>
+    <p>The two datasets use different relevance labels, so compare methods within each dataset. The notebook does not report a confidence interval for HotpotQA; the small test gain should not be read as an established improvement.</p>
 
-    <ul class="tags" aria-label="Topics"><li>BM25</li><li>field weighting</li><li>product search</li><li>WANDS</li><li>cross-validation</li><li>evaluation</li></ul>
+    <h2>The takeaway</h2>
+    <p>On WANDS, letting the product name dominate added 3.4 nDCG points with no new model. Equal weights gained nothing meaningful, and concatenating all five fields made search worse.</p>
+    <p>HotpotQA favored passage text instead: twice the title’s weight. Equal weights made retrieval worse here too, but tuning recovered only a small gain over concatenation: 0.3 nDCG points, with lower recall. Weighting can help, but the useful balance—and how much it pays—depends on the dataset.</p>
+
+    <ul class="tags" aria-label="Topics"><li>BM25</li><li>field weighting</li><li>product search</li><li>WANDS</li><li>HotpotQA</li><li>cross-validation</li><li>evaluation</li></ul>
   </article>
 
   <footer>
-    <a href="https://github.com/enisteper1/e2e-search-lab/blob/main/retrieval/field_weighting_wands.ipynb" rel="noopener">Notebook on GitHub</a>
+    <a href="https://github.com/enisteper1/e2e-search-lab/blob/main/retrieval/field_weighting.ipynb" rel="noopener">Notebook on GitHub</a>
     <a href="../index.html#writing">More writing</a>
   </footer>
 </div>
@@ -264,11 +295,7 @@ footer{margin:56px 0 0;padding:24px 0 48px;border-top:1px solid var(--line);colo
   // Notebook weight grid with name = 1 and class = features = 0.25 (the most common tuned choice),
   // scored on all 479 queries. GRID[metric][category level][description level], levels in LEVELS order.
   var LEVELS=["0","0.25","0.5","1"];
-  var GRID={
-    ndcg:[[0.6942,0.7126,0.7128,0.6974],[0.7098,0.7226,0.7161,0.7048],[0.7116,0.7239,0.7171,0.7071],[0.6848,0.7045,0.7054,0.7015]],
-    mrr: [[0.6628,0.6903,0.6770,0.6495],[0.6770,0.6998,0.6825,0.6562],[0.6777,0.7031,0.6887,0.6626],[0.6419,0.6782,0.6773,0.6617]],
-    rec: [[0.4047,0.4099,0.4040,0.3832],[0.4121,0.4143,0.4087,0.3886],[0.4110,0.4132,0.4090,0.3907],[0.3968,0.4029,0.4020,0.3891]]
-  };
+  var GRID={"ndcg": [[0.6942, 0.7126, 0.7128, 0.6974], [0.7098, 0.7226, 0.7161, 0.7048], [0.7116, 0.7239, 0.7171, 0.7071], [0.6848, 0.7045, 0.7054, 0.7015]], "mrr": [[0.6628, 0.6903, 0.677, 0.6495], [0.677, 0.6998, 0.6825, 0.6562], [0.6777, 0.7031, 0.6887, 0.6626], [0.6419, 0.6782, 0.6773, 0.6617]], "rec": [[0.4047, 0.4099, 0.404, 0.3832], [0.4121, 0.4143, 0.4087, 0.3886], [0.411, 0.4132, 0.409, 0.3907], [0.3968, 0.4029, 0.402, 0.3891]]};
   var BASE={ndcg:0.6852,mrr:0.7068,rec:0.3756};
   var METRICS=[
     {id:"ndcg",tab:"nDCG@10",cap:"nDCG@10 peaks at category 0.5 and description 0.25 (0.724). Fifteen of the 16 cells beat the three-field concatenated text (0.685) and are outlined."},
